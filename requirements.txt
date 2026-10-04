@@ -1,0 +1,83 @@
+import re
+import streamlit as st
+from pypdf import PdfReader
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+
+SKILLS = [
+    "python", "java", "c++", "javascript", "typescript", "html", "css",
+    "react", "node.js", "flask", "django", "fastapi", "sql", "mysql",
+    "postgresql", "mongodb", "git", "github", "docker", "aws", "azure",
+    "linux", "rest api", "machine learning", "deep learning", "nlp",
+    "computer vision", "pandas", "numpy", "scikit-learn", "tensorflow",
+    "pytorch", "opencv", "streamlit", "data structures", "algorithms",
+    "oop", "statistics", "data analysis", "power bi", "tableau", "excel",
+    "agile",
+]
+
+
+def read_pdf(file):
+    reader = PdfReader(file)
+    return " ".join((page.extract_text() or "") for page in reader.pages)
+
+
+def clean(text):
+    return re.sub(r"\s+", " ", text.lower()).strip()
+
+
+def find_skills(text):
+    found = set()
+    for skill in SKILLS:
+        pattern = r"(?<![a-z0-9])" + re.escape(skill) + r"(?![a-z0-9])"
+        if re.search(pattern, text):
+            found.add(skill)
+    return found
+
+
+def text_similarity(resume, jd):
+    vectors = TfidfVectorizer(stop_words="english").fit_transform([resume, jd])
+    return float(cosine_similarity(vectors[0], vectors[1])[0][0]) * 100
+
+
+st.set_page_config(page_title="AI Resume Matcher", page_icon="📄")
+st.title("📄 AI Resume–Job Matcher")
+st.write("Upload your resume and paste a job description to see how well you match.")
+
+uploaded = st.file_uploader("Upload your resume (PDF)", type="pdf")
+jd = st.text_area("Paste the job description", height=200)
+
+if st.button("Analyze"):
+    if not uploaded or not jd.strip():
+        st.warning("Please upload a resume and paste a job description.")
+    else:
+        resume_text = clean(read_pdf(uploaded))
+        jd_text = clean(jd)
+
+        if len(resume_text) < 50:
+            st.error("Could not read text from this PDF. Try a text-based PDF, not a scanned image.")
+        else:
+            resume_skills = find_skills(resume_text)
+            jd_skills = find_skills(jd_text)
+            matched = sorted(resume_skills & jd_skills)
+            missing = sorted(jd_skills - resume_skills)
+
+            similarity = text_similarity(resume_text, jd_text)
+            if jd_skills:
+                skill_score = len(matched) / len(jd_skills) * 100
+                final = round(0.6 * skill_score + 0.4 * similarity, 1)
+            else:
+                final = round(similarity, 1)
+
+            st.subheader(f"Match score: {final}%")
+            st.progress(min(int(final), 100))
+
+            col1, col2 = st.columns(2)
+            with col1:
+                st.success("✅ Skills you have")
+                st.write(", ".join(matched) if matched else "None found")
+            with col2:
+                st.error("❌ Skills to add")
+                st.write(", ".join(missing) if missing else "Nothing missing 🎉")
+
+            if missing:
+                st.info("Tip: if you really know these skills, add them to your resume with a project that uses them.")
